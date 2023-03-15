@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 import pandas as pd
 from sqlalchemy import create_engine
-import sys
+import ast
 
 
 class web_loader():
@@ -203,16 +203,17 @@ class web_loader():
         load_list = self.list_load_files(bucket=files_from_bucket)
         logging.info(load_list)
 
-        secrets = self.get_secret(secret_name)
+        secrets = ast.literal_eval(self.get_secret(secret_name))
 
         if type == "rds":
             host = "localhost" #secrets["host"]
-            port = secrets["port"]
+            port = "5555" #secrets["port"]
             logging.info("Connecting to %s:%s" % (host, port))
-            conn =  "postgresql+psycopg2://%s:%s@%s:5432/%s" % (
+            conn =  "postgresql+psycopg2://%s:%s@%s:%s/%s" % (
                 secrets["username"],
                 secrets["password"],
                 host,
+                port,
                 "postgres"
             )
             engine = create_engine(conn)
