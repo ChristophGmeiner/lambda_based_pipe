@@ -111,9 +111,10 @@ class web_loader():
 
         else:
             source_folder = self.create_raw_files(file_download=True, store_files=False)
+            logging.info(source_folder)
             if os.path.isdir(source_folder):
                 load_list = os.listdir(source_folder)
-                load_list = [source_folder + f for f in load_list]
+                load_list = [source_folder + "/" + f for f in load_list]
             else:
                 logging.warning("Local folder is empty ... switching to bucket!")
                 load_list = self.list_bucket_files()
@@ -164,7 +165,6 @@ class web_loader():
             self.delete_local_temp_files()
 
 
-
     def load_db(self,
                 file_format,
                 files_from_bucket=False,
@@ -172,12 +172,14 @@ class web_loader():
                 delete_local_files=True):
 
         load_list = self.list_load_files(bucket=files_from_bucket)
+        logging.info(load_list)
 
         for f in load_list:
-            if f[f.find(".") + 1, :] != file_format:
+            if f[f.find(".") + 1:] != file_format:
                 raise Exception("File extensions in bucket do not match file_format parameter: %s" % load_list)
             if file_format == "csv":
-                df = pd.read_csv()
+                logging.info("Loading %s to DF" % f)
+                df = pd.read_csv(f)
 
         if delete_local_files:
             self.delete_local_temp_files()
