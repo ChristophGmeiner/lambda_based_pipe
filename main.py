@@ -12,6 +12,7 @@ from sqlalchemy import create_engine
 import ast
 import redshift_connector
 import json
+import sys
 
 
 class web_loader():
@@ -25,7 +26,9 @@ class web_loader():
                  bucket_dest_folder,
                  tempfolder="/tempload/",
                  zip_file=False,
-                 log_to_terminal=True):
+                 log_to_terminal=True,
+                 file_format=None,
+                 file_source="load"):
         if tempfolder:
             if tempfolder[0] != "/":
                 tempfolder = "/" + tempfolder
@@ -41,6 +44,8 @@ class web_loader():
         if self.bucket_dest_folder[-1] != "/":
             self.bucket_dest_folder += "/"
         self.zip_file = zip_file
+        self.file_format = file_format
+        self.file_source = file_source
         self.s3_client = boto3.client("s3")
         self.date_folder = date.today().strftime("%Y%m%d") + "/"
 
@@ -60,37 +65,29 @@ class web_loader():
     def create_raw_files(self,
                          file_download=None,
                          file_data_url=None,
-                         file_format=None,
                          store_files=True,
-                         json_url_query=None):
+                         file_url_query=False):
 
+        dest = self.tempdir + self.file_dest_name
         if file_download:
             if self.zip_file:
-                dest = self.tempdir + self.file_dest_name
                 if store_files:
-                    r = request.urlretrieve(file_data_url, self.file_dest_name + ".zip")
-                    shutil.unpack_archive(self.file_dest_name + ".zip", dest)
+                    r = request.urlretrieve(file_data_url, dest + ".zip")
+                    shutil.unpack_archive(dest + ".zip", dest)
                     logging.info("%s unpacked to %s" % (self.file_dest_name, dest))
-            else:
-                if not file_format:
-                    raise Exception("Parameter file_format must be provided if not zip load!")
-                dest = self.tempdir + self.file_dest_name + "." + file_format
-                if store_files:
-                    r = request.urlretrieve(file_data_url, self.file_dest_name + "." + file_format)
-                    os.mkdir(self.file_dest_name)
-                    shutil.copy(self.file_dest_name, dest)
-                    logging.info("%s moved to %s" % (self.file_dest_name, dest))
+                return dest
 
-
-        if json_url_query:
-            dest = self.tempdir + self.file_dest_name + "." + file_format
+        if file_url_query:
+            #dest = dest + "/" + self.file_dest_name
+            if not os.path.isdir(dest):
+                os.mkdir(dest)
+            dest_file = dest + "/" + self.file_dest_name + "." + self.file_format
             if store_files:
-                r = requests.get(json_url_query)
+                r = requests.get(file_data_url)
                 data = r.text
-                with open(dest, "w") as f:
+                with open(dest_file, "w") as f:
                     json.dump(data, f)
-
-        return dest
+            return dest
 
 
     def list_bucket_files(self,
@@ -126,7 +123,10 @@ class web_loader():
             load_list = self.list_bucket_files()
 
         else:
-            source_folder = self.create_raw_files(file_download=True, store_files=False)
+            if self.file_source == "load":
+                source_folder = self.create_raw_files(file_download=True, store_files=False)
+            if self.file_source == "create":
+                source_folder = self.create_raw_files(file_url_query=True, store_files=False)
             logging.info(source_folder)
             if os.path.isdir(source_folder):
                 load_list = os.listdir(source_folder)
@@ -150,7 +150,10 @@ class web_loader():
                           file_prefix=None,
                           file_suffix=None):
         bucket_dest_folder = self.bucket_dest_folder + self.date_folder
-        source_folder = self.create_raw_files(file_download=True, store_files=False)
+        if self.file_source == "load":
+            source_folder = self.create_raw_files(file_download=True, store_files=False)
+        if self.file_source == "create":
+            source_folder = self.create_raw_files(file_url_query=True, store_files=False)
         source_files = os.listdir(source_folder)
 
         i = 1
@@ -258,18 +261,16 @@ class web_loader():
             if f[f.find(".") + 1:] != file_format:
                 raise Exception("File extensions in bucket do not match file_format parameter: %s" % load_list)
 
-            if type == "json":
+            if file_format == "json":
                 data = json.load(f)
                 df_base = data["results"]
                 df = pd.DataFrame(df_base)
 
-            if file_format == "csv":
+            elif file_format == "csv":
                 logging.info("Loading %s to DF" % f)
                 df = pd.read_csv(f,
                                  header=0)
-            df.dropna(axis=1,
-                      how="all",
-                      inplace=True)
+
             table_name = self.file_dest_name + str(i)
             table_name = table_name.lower()
             if type == "rds":
