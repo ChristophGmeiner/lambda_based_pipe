@@ -1,6 +1,7 @@
 import boto3
 from botocore.exceptions import ClientError
 from urllib import request
+import requests
 import shutil
 import os
 import logging
@@ -10,11 +11,12 @@ import pandas as pd
 from sqlalchemy import create_engine
 import ast
 import redshift_connector
+import json
 
 
 class web_loader():
     '''
-    loads data from web, stores file in S3, transfers to RDS or Redshifs
+    loads data from web, stores file in S3, transfers to RDS or Redshift
     '''
 
     def __init__(self,
@@ -59,7 +61,8 @@ class web_loader():
                          file_download=None,
                          file_data_url=None,
                          file_format=None,
-                         store_files=True):
+                         store_files=True,
+                         json_url_query=None):
 
         if file_download:
             if self.zip_file:
@@ -71,11 +74,21 @@ class web_loader():
             else:
                 if not file_format:
                     raise Exception("Parameter file_format must be provided if not zip load!")
-                dest = self.tempdir + self.file_dest_name + file_format
+                dest = self.tempdir + self.file_dest_name + "." + file_format
                 if store_files:
+                    r = request.urlretrieve(file_data_url, self.file_dest_name + "." + file_format)
                     os.mkdir(self.file_dest_name)
                     shutil.copy(self.file_dest_name, dest)
                     logging.info("%s moved to %s" % (self.file_dest_name, dest))
+
+
+        if json_url_query:
+            dest = self.tempdir + self.file_dest_name + "." + file_format
+            if store_files:
+                r = requests.get(json_url_query)
+                data = r.text
+                with open(dest, "w") as f:
+                    json.dump(data, f)
 
         return dest
 
@@ -225,14 +238,9 @@ class web_loader():
         if type == "redshift":
             host = "test-rs-serverless-workgroup.120327452865.eu-central-1.redshift-serverless.amazonaws.com"
             port = 5439 #secrets["port"]
+
             logging.info("Connecting to %s:%s" % (host, port))
-            # conn = "postgresql://%s:%s@%s:%s/%s" % (
-            #    "cgmeiner",
-            #    secrets,
-            #    host,
-            #    port,
-            #    "test-rs-serverless"
-            # )
+
             conn = redshift_connector.connect(
                 user="cgmeiner",
                 password=secrets,
@@ -250,29 +258,34 @@ class web_loader():
             if f[f.find(".") + 1:] != file_format:
                 raise Exception("File extensions in bucket do not match file_format parameter: %s" % load_list)
 
+            if type == "json":
+                data = json.load(f)
+                df_base = data["results"]
+                df = pd.DataFrame(df_base)
+
             if file_format == "csv":
                 logging.info("Loading %s to DF" % f)
                 df = pd.read_csv(f,
                                  header=0)
-                df.dropna(axis=1,
-                          how="all",
-                          inplace=True)
-                schema = "public"
-                table_name = self.file_dest_name + str(i)
-                table_name = table_name.lower()
-                if type == "rds":
-                    df.to_sql(table_name,
-                              engine,
-                              index=False,
-                              if_exists="replace")
-                if type == "redshift":
-                    dropquery = "DROP TABLE IF EXISTS %s;" % (table_name)
-                    createquery = pd.io.sql.get_schema(df, table_name)
-                    rs_cursor.execute(dropquery)
-                    rs_cursor.execute(createquery)
-                    logging.info(createquery)
-                    logging.info("Table %s created!" % table_name)
-                    rs_cursor.write_dataframe(df, table_name)
+            df.dropna(axis=1,
+                      how="all",
+                      inplace=True)
+            table_name = self.file_dest_name + str(i)
+            table_name = table_name.lower()
+            if type == "rds":
+                df.to_sql(table_name,
+                          engine,
+                          index=False,
+                          if_exists="replace")
+            if type == "redshift":
+                dropquery = "DROP TABLE IF EXISTS %s;" % (table_name)
+                createquery = pd.io.sql.get_schema(df, table_name)
+                createquery = createquery.replace("TEXT", "VARCHAR(1000)")
+                rs_cursor.execute(dropquery)
+                rs_cursor.execute(createquery)
+                logging.info(createquery)
+                logging.info("Table %s created!" % table_name)
+                rs_cursor.write_dataframe(df, table_name)
 
             logging.info("Created table %d of %d" % (i, len(load_list)))
             i += 1
