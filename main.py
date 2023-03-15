@@ -1,12 +1,14 @@
 import boto3
+from botocore.exceptions import ClientError
 from urllib import request
 import shutil
 import os
 import logging
 from datetime import date
 from pathlib import Path
-
 import pandas as pd
+from sqlalchemy import create_engine
+import sys
 
 
 class web_loader():
@@ -165,8 +167,35 @@ class web_loader():
             self.delete_local_temp_files()
 
 
+    def get_secret(self,
+                   secret_name,
+                   region_name="eu-central-1"):
+
+        # Create a Secrets Manager client
+        session = boto3.session.Session()
+        client = session.client(
+            service_name='secretsmanager',
+            region_name=region_name
+        )
+
+        try:
+            get_secret_value_response = client.get_secret_value(
+                SecretId=secret_name
+            )
+        except ClientError as e:
+            # For a list of exceptions thrown, see
+            # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+            raise e
+
+        # Decrypts secret using the associated KMS key.
+        secret = get_secret_value_response['SecretString']
+
+        return secret
+
+
     def load_db(self,
                 file_format,
+                secret_name,
                 files_from_bucket=False,
                 type="rds",
                 delete_local_files=True):
@@ -174,12 +203,39 @@ class web_loader():
         load_list = self.list_load_files(bucket=files_from_bucket)
         logging.info(load_list)
 
+        secrets = self.get_secret(secret_name)
+
+        if type == "rds":
+            host = "localhost" #secrets["host"]
+            port = secrets["port"]
+            logging.info("Connecting to %s:%s" % (host, port))
+            conn =  "postgresql+psycopg2://%s:%s@%s:5432/%s" % (
+                secrets["username"],
+                secrets["password"],
+                host,
+                "postgres"
+            )
+            engine = create_engine(conn)
+
+            logging.info("Connection successful")
+
+        i = 1
         for f in load_list:
             if f[f.find(".") + 1:] != file_format:
                 raise Exception("File extensions in bucket do not match file_format parameter: %s" % load_list)
             if file_format == "csv":
                 logging.info("Loading %s to DF" % f)
                 df = pd.read_csv(f)
+            if type == "rds":
+                table_name = self.file_dest_name + str(i)
+
+                df.to_sql(table_name,
+                          engine,
+                          index=False,
+                          if_exists="replace")
+
+            logging.info("Created table %d of %d" % (i, len(load_list)))
+            i += 1
 
         if delete_local_files:
             self.delete_local_temp_files()
