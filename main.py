@@ -203,7 +203,10 @@ class web_loader():
         load_list = self.list_load_files(bucket=files_from_bucket)
         logging.info(load_list)
 
-        secrets = ast.literal_eval(self.get_secret(secret_name))
+        secrets = self.get_secret(secret_name)
+
+        if len(secrets) > 20:
+            secrets = ast.literal_eval(secrets)
 
         if type == "rds":
             host = "localhost" #secrets["host"]
@@ -216,20 +219,30 @@ class web_loader():
                 port,
                 "postgres"
             )
-            engine = create_engine(conn)
-
-            logging.info("Connection successful")
+        if type == "redshift":
+            host = "test-rs-serverless-workgroup.120327452865.eu-central-1.redshift-serverless.amazonaws.com"
+            port = "5439" #secrets["port"]
+            logging.info("Connecting to %s:%s" % (host, port))
+            conn =  "postgresql+psycopg2://%s:%s@%s:%s/%s" % (
+                "cgmeiner",
+                secrets,
+                host,
+                port,
+                "test-rs-serverless"
+            )
+        engine = create_engine(conn)
+        logging.info("Connection successful")
 
         i = 1
         for f in load_list:
+
             if f[f.find(".") + 1:] != file_format:
                 raise Exception("File extensions in bucket do not match file_format parameter: %s" % load_list)
+
             if file_format == "csv":
                 logging.info("Loading %s to DF" % f)
                 df = pd.read_csv(f)
-            if type == "rds":
                 table_name = self.file_dest_name + str(i)
-
                 df.to_sql(table_name,
                           engine,
                           index=False,
