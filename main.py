@@ -262,7 +262,8 @@ class web_loader():
                 raise Exception("File extensions in bucket do not match file_format parameter: %s" % load_list)
 
             if file_format == "json":
-                data = json.load(f)
+                with open(f, "r") as fj:
+                    data = json.load(fj)
                 df_base = data["results"]
                 df = pd.DataFrame(df_base)
 
