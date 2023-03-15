@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 from sqlalchemy import create_engine
 import ast
+import redshift_connector
 
 
 class web_loader():
@@ -219,18 +220,28 @@ class web_loader():
                 port,
                 "postgres"
             )
+            engine = create_engine(conn)
+
         if type == "redshift":
             host = "test-rs-serverless-workgroup.120327452865.eu-central-1.redshift-serverless.amazonaws.com"
-            port = "5439" #secrets["port"]
+            port = 5439 #secrets["port"]
             logging.info("Connecting to %s:%s" % (host, port))
-            conn =  "postgresql+psycopg2://%s:%s@%s:%s/%s" % (
-                "cgmeiner",
-                secrets,
-                host,
-                port,
-                "test-rs-serverless"
+            # conn = "postgresql://%s:%s@%s:%s/%s" % (
+            #    "cgmeiner",
+            #    secrets,
+            #    host,
+            #    port,
+            #    "test-rs-serverless"
+            # )
+            conn = redshift_connector.connect(
+                user="cgmeiner",
+                password=secrets,
+                host=host,
+                port=port,
+                database="test-rs-serverless"
             )
-        engine = create_engine(conn)
+            rs_cursor = conn.cursor()
+
         logging.info("Connection successful")
 
         i = 1
@@ -241,12 +252,27 @@ class web_loader():
 
             if file_format == "csv":
                 logging.info("Loading %s to DF" % f)
-                df = pd.read_csv(f)
+                df = pd.read_csv(f,
+                                 header=0)
+                df.dropna(axis=1,
+                          how="all",
+                          inplace=True)
+                schema = "public"
                 table_name = self.file_dest_name + str(i)
-                df.to_sql(table_name,
-                          engine,
-                          index=False,
-                          if_exists="replace")
+                table_name = table_name.lower()
+                if type == "rds":
+                    df.to_sql(table_name,
+                              engine,
+                              index=False,
+                              if_exists="replace")
+                if type == "redshift":
+                    dropquery = "DROP TABLE IF EXISTS %s;" % (table_name)
+                    createquery = pd.io.sql.get_schema(df, table_name)
+                    rs_cursor.execute(dropquery)
+                    rs_cursor.execute(createquery)
+                    logging.info(createquery)
+                    logging.info("Table %s created!" % table_name)
+                    rs_cursor.write_dataframe(df, table_name)
 
             logging.info("Created table %d of %d" % (i, len(load_list)))
             i += 1
