@@ -12,6 +12,7 @@ from sqlalchemy import create_engine
 import ast
 import json
 import awswrangler as wr
+import yaml
 
 
 class web_loader():
@@ -333,3 +334,8 @@ class web_loader():
 
         if delete_local_files:
             self.delete_local_temp_files()
+
+def main():
+    wl = web_loader()
+    with open("WDI_RDS.yml", "r") as yf:
+        config = yaml.safe_load(yf)

@@ -1,0 +1,4 @@
+file_dest_name: "WDI"
+bucket: "christophprivat-general-data-bucket"
+bucket_dest_folder: "WDI"
+file_download: True
