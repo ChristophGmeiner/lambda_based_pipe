@@ -10,25 +10,37 @@ from pathlib import Path
 import pandas as pd
 from sqlalchemy import create_engine
 import ast
-import redshift_connector
 import json
-import sys
+import awswrangler as wr
 
 
 class web_loader():
-    '''
+    """
     loads data from web, stores file in S3, transfers to RDS or Redshift
-    '''
+    """
 
     def __init__(self,
-                 file_dest_name,
-                 bucket,
-                 bucket_dest_folder,
-                 tempfolder="/tempload/",
-                 zip_file=False,
-                 log_to_terminal=True,
-                 file_format=None,
-                 file_source="load"):
+                 file_dest_name: str,
+                 bucket: str,
+                 bucket_dest_folder: str,
+                 file_download: bool,
+                 tempfolder: str = "/tempload/",
+                 zip_file: bool = False,
+                 log_to_terminal: bool = True,
+                 file_format: str = None,
+                 **redshift_kwargs):
+        """
+        :param file_dest_name: indicating which file to load, e.g. WDI or eea
+        :param bucket: destination bucket as string
+        :param bucket_dest_folder: foldername for destination in bucket
+        :param file_download: Does the wb request lead to a direct file downloa?
+        :param tempfolder: local storage destiantion
+        :param zip_file: Will the download be a zip file?
+        :param log_to_terminal: keep logging in termainl?
+        :param file_format: CSV or JSON to further process?
+        :param redshift_kwargs: Redshift load args - see func below for details
+        """
+
         if tempfolder:
             if tempfolder[0] != "/":
                 tempfolder = "/" + tempfolder
@@ -45,12 +57,12 @@ class web_loader():
             self.bucket_dest_folder += "/"
         self.zip_file = zip_file
         self.file_format = file_format
-        self.file_source = file_source
+        self.file_download = file_download
+        self.redshift_kwargs = redshift_kwargs
         self.s3_client = boto3.client("s3")
         self.date_folder = date.today().strftime("%Y%m%d") + "/"
 
         if log_to_terminal:
-            #logging config
             logging.basicConfig(
                 level=logging.INFO,
                 format="%(asctime)s [%(levelname)s] %(message)s",
@@ -63,35 +75,48 @@ class web_loader():
         logging.info("Tmp dir: %s" % self.tempdir)
 
     def create_raw_files(self,
-                         file_download=None,
-                         file_data_url=None,
-                         store_files=True,
-                         file_url_query=False):
+                         store_files: bool,
+                         file_data_url: str = None):
+        """
+        Create raw files from web request and store those locally in tempfolder from class
+        :param file_data_url: URL for file download or creation
+        :param store_files: Also store files locally and in S3
+        :return: string indicating local destination, only in case store_files of class is set to False
+        """
 
         dest = self.tempdir + self.file_dest_name
-        if file_download:
+
+        if not store_files:
+            return dest
+
+        if not os.path.isdir(dest) and store_files:
+            os.mkdir(dest)
+
+        if store_files and not file_data_url:
+            logging.error("Storing files only possible, if URL is provided")
+
+        if self.file_download:
             if self.zip_file:
                 if store_files:
                     r = request.urlretrieve(file_data_url, dest + ".zip")
                     shutil.unpack_archive(dest + ".zip", dest)
                     logging.info("%s unpacked to %s" % (self.file_dest_name, dest))
-                return dest
 
-        if file_url_query:
-            #dest = dest + "/" + self.file_dest_name
-            if not os.path.isdir(dest):
-                os.mkdir(dest)
+        else:
             dest_file = dest + "/" + self.file_dest_name + "." + self.file_format
             if store_files:
                 r = requests.get(file_data_url)
-                data = r.text
+                data = r.json()
                 with open(dest_file, "w") as f:
                     json.dump(data, f)
-            return dest
-
 
     def list_bucket_files(self,
-                          store_to_local_temp=False):
+                          store_to_local_temp: bool = False):
+        """
+        create a list of bucket files in dest folder on bucket, if nothing is there, get the list from local path
+        :param store_to_local_temp: Whether the files shall be transferred form bucket to local temp drive
+        :return: list of file names (strings)
+        """
         bf_list = list()
         bucket_dest_folder = self.bucket_dest_folder + self.date_folder
         bucket_files = self.s3_client.list_objects_v2(
@@ -102,7 +127,7 @@ class web_loader():
             bf_list.append(bf["Key"])
 
         if store_to_local_temp:
-            source_folder = self.create_raw_files(file_download=True, store_files=False)
+            source_folder = self.create_raw_files(store_files=False)
             logging.info("Downloading to %s" % source_folder)
 
             i = 1
@@ -118,15 +143,19 @@ class web_loader():
 
         return bf_list
 
-    def list_load_files(self, bucket=False):
+    def list_load_files(self,
+                        bucket: bool = False):
+        """
+        Create a list of files for load to databases later
+        :param bucket: BTake files from bucket instead of local temp drive
+        :return: list of filenames as strings
+        """
+
         if bucket:
             load_list = self.list_bucket_files()
 
         else:
-            if self.file_source == "load":
-                source_folder = self.create_raw_files(file_download=True, store_files=False)
-            if self.file_source == "create":
-                source_folder = self.create_raw_files(file_url_query=True, store_files=False)
+            source_folder = self.create_raw_files(store_files=False)
             logging.info(source_folder)
             if os.path.isdir(source_folder):
                 load_list = os.listdir(source_folder)
@@ -137,23 +166,30 @@ class web_loader():
 
         return load_list
 
-
     def delete_local_temp_files(self):
-        source_folder = self.create_raw_files(file_download=True, store_files=False)
+        """
+        Delete files on local temp drive
+        :return: None
+        """
+        source_folder = self.create_raw_files(store_files=False)
+        logging.info("Starting emptying %s" % source_folder)
         shutil.rmtree(source_folder)
         logging.info("Succesfully emptied %s!" % source_folder)
         logging.info("Tempdir now: %s" % os.listdir(self.tempdir))
 
-
     def move_raw_files_s3(self,
-                          delete_local_files=True,
-                          file_prefix=None,
-                          file_suffix=None):
+                          delete_local_files: bool = False,
+                          file_prefix: str = None,
+                          file_suffix: str = None):
+        """
+        Move files from local temp drive to S3 bucket
+        :param delete_local_files: delete local files after transfer to S3?
+        :param file_prefix: File prefix for S3 files
+        :param file_suffix: File suffix for S3 files
+        :return: None
+        """
         bucket_dest_folder = self.bucket_dest_folder + self.date_folder
-        if self.file_source == "load":
-            source_folder = self.create_raw_files(file_download=True, store_files=False)
-        if self.file_source == "create":
-            source_folder = self.create_raw_files(file_url_query=True, store_files=False)
+        source_folder = self.create_raw_files(store_files=False)
         source_files = os.listdir(source_folder)
 
         i = 1
@@ -183,12 +219,16 @@ class web_loader():
         if delete_local_files:
             self.delete_local_temp_files()
 
-
     def get_secret(self,
                    secret_name,
                    region_name="eu-central-1"):
+        """
+        Request AWS secret details
+        :param secret_name: AWS secret name
+        :param region_name: AWS region of secret manager
+        :return: Secret either as string or list
+        """
 
-        # Create a Secrets Manager client
         session = boto3.session.Session()
         client = session.client(
             service_name='secretsmanager',
@@ -200,22 +240,27 @@ class web_loader():
                 SecretId=secret_name
             )
         except ClientError as e:
-            # For a list of exceptions thrown, see
-            # https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
             raise e
 
-        # Decrypts secret using the associated KMS key.
         secret = get_secret_value_response['SecretString']
 
         return secret
 
-
     def load_db(self,
-                file_format,
-                secret_name,
-                files_from_bucket=False,
-                type="rds",
-                delete_local_files=True):
+                file_format: str,
+                secret_name: str,
+                files_from_bucket: bool = False,
+                type:str = "rds",
+                delete_local_files: bool = True):
+        """
+        loads files to database
+        :param file_format: cvs or json
+        :param secret_name: name of AWS secret for db creds
+        :param files_from_bucket: take files from bucket? if False local temp files are taken
+        :param type: database type, RDS or Redshift
+        :param delete_local_files: delete local files after complete load to DB?
+        :return: None
+        """
 
         load_list = self.list_load_files(bucket=files_from_bucket)
         logging.info(load_list)
@@ -225,6 +270,7 @@ class web_loader():
         if len(secrets) > 20:
             secrets = ast.literal_eval(secrets)
 
+        #on non local env can be used with wr and Glue RDS conn
         if type == "rds":
             host = "localhost" #secrets["host"]
             port = "5555" #secrets["port"]
@@ -239,21 +285,11 @@ class web_loader():
             engine = create_engine(conn)
 
         if type == "redshift":
-            host = "test-rs-serverless-workgroup.120327452865.eu-central-1.redshift-serverless.amazonaws.com"
-            port = 5439 #secrets["port"]
-
-            logging.info("Connecting to %s:%s" % (host, port))
-
-            conn = redshift_connector.connect(
-                user="cgmeiner",
-                password=secrets,
-                host=host,
-                port=port,
-                database="test-rs-serverless"
-            )
-            rs_cursor = conn.cursor()
-
-        logging.info("Connection successful")
+            assert self.redshift_kwargs["glue_conn"]
+            glue_conn = self.redshift_kwargs["glue_conn"]
+            logging.info("Connecting to %s via AWS Wrangler and Glue Conn" % glue_conn)
+            conn = wr.redshift.connect(glue_conn)
+            logging.info("Connection successful")
 
         i = 1
         for f in load_list:
@@ -262,16 +298,19 @@ class web_loader():
                 raise Exception("File extensions in bucket do not match file_format parameter: %s" % load_list)
 
             if file_format == "json":
+                logging.info("Reading %s" % f)
                 with open(f, "r") as fj:
-                    data = json.load(fj)
-                df_base = data["results"]
+                    df_base = json.load(fj)
+                df_base = df_base["results"]
                 df = pd.DataFrame(df_base)
+                logging.info(df.head())
 
             elif file_format == "csv":
                 logging.info("Loading %s to DF" % f)
                 df = pd.read_csv(f,
                                  header=0)
 
+            df = df.dropna(axis=1, how="all")
             table_name = self.file_dest_name + str(i)
             table_name = table_name.lower()
             if type == "rds":
@@ -280,14 +319,14 @@ class web_loader():
                           index=False,
                           if_exists="replace")
             if type == "redshift":
-                dropquery = "DROP TABLE IF EXISTS %s;" % (table_name)
-                createquery = pd.io.sql.get_schema(df, table_name)
-                createquery = createquery.replace("TEXT", "VARCHAR(1000)")
-                rs_cursor.execute(dropquery)
-                rs_cursor.execute(createquery)
-                logging.info(createquery)
-                logging.info("Table %s created!" % table_name)
-                rs_cursor.write_dataframe(df, table_name)
+                wr.redshift.to_sql(
+                    df=df,
+                    con=conn,
+                    table=table_name,
+                    schema=self.redshift_kwargs["schema"],
+                    chunksize=self.redshift_kwargs["chunksize"],
+                    mode=self.redshift_kwargs["mode"]
+                )
 
             logging.info("Created table %d of %d" % (i, len(load_list)))
             i += 1
