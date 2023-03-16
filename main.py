@@ -336,6 +336,8 @@ class web_loader():
             self.delete_local_temp_files()
 
 def main():
-    wl = web_loader()
     with open("WDI_RDS.yml", "r") as yf:
         config = yaml.safe_load(yf)
+    wl = web_loader(**config)
+
+
