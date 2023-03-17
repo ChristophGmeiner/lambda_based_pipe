@@ -26,9 +26,9 @@ class WebLoader():
                  bucket: str,
                  bucket_dest_folder: str,
                  file_download: bool,
+                 file_format: str,
                  tempfolder: str = "/tempload/",
-                 zip_file: bool = False,
-                 file_format: str = None):
+                 zip_file: bool = False):
         """
         :param file_dest_name: indicating which file to load, e.g. WDI or eea
         :param bucket: destination bucket as string
@@ -74,6 +74,7 @@ class WebLoader():
         dest = self.tempdir + self.file_dest_name
 
         if not store_files:
+            logging.info("%s provided for further process" % dest)
             return dest
 
         if not os.path.isdir(dest) and store_files:
@@ -88,6 +89,7 @@ class WebLoader():
                     r = request.urlretrieve(file_data_url, dest + ".zip")
                     shutil.unpack_archive(dest + ".zip", dest)
                     logging.info("%s unpacked to %s" % (self.file_dest_name, dest))
+                    logging.info(os.listdir(dest))
 
         else:
             dest_file = dest + "/" + self.file_dest_name + "." + self.file_format
@@ -96,6 +98,8 @@ class WebLoader():
                 data = r.json()
                 with open(dest_file, "w") as f:
                     json.dump(data, f)
+                logging.info("Following files stored: ")
+                logging.info(os.listdir(dest))
 
     def list_bucket_files(self,
                           store_to_local_temp: bool = False):
@@ -234,7 +238,6 @@ class WebLoader():
         return secret
 
     def load_db(self,
-                file_format: str,
                 secret_name: str,
                 files_from_bucket: bool = False,
                 type:str = "rds",
@@ -242,7 +245,6 @@ class WebLoader():
                 redshift_kwargs: dict = None):
         """
         loads files to database
-        :param file_format: cvs or json
         :param secret_name: name of AWS secret for db creds
         :param files_from_bucket: take files from bucket? if False local temp files are taken
         :param type: database type, RDS or Redshift
@@ -283,10 +285,10 @@ class WebLoader():
         i = 1
         for f in load_list:
 
-            if f[f.find(".") + 1:] != file_format:
+            if f[f.find(".") + 1:] != self.file_format:
                 raise Exception("File extensions in bucket do not match file_format parameter: %s" % load_list)
 
-            if file_format == "json":
+            if self.file_format == "json":
                 logging.info("Reading %s" % f)
                 with open(f, "r") as fj:
                     df_base = json.load(fj)
@@ -294,7 +296,7 @@ class WebLoader():
                 df = pd.DataFrame(df_base)
                 logging.info(df.head())
 
-            elif file_format == "csv":
+            elif self.file_format == "csv":
                 logging.info("Loading %s to DF" % f)
                 df = pd.read_csv(f,
                                  header=0)

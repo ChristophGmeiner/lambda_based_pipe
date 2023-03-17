@@ -2,7 +2,8 @@ class:
   file_dest_name: "eea"
   bucket: "christophprivat-general-data-bucket"
   bucket_dest_folder: "eea"
-  file_download: True
+  file_download: False
+  file_format: "json"
 
 create_file:
   store_files: True
