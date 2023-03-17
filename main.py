@@ -13,9 +13,10 @@ import ast
 import json
 import awswrangler as wr
 import yaml
+import sys
 
 
-class web_loader():
+class WebLoader():
     """
     loads data from web, stores file in S3, transfers to RDS or Redshift
     """
@@ -27,9 +28,7 @@ class web_loader():
                  file_download: bool,
                  tempfolder: str = "/tempload/",
                  zip_file: bool = False,
-                 log_to_terminal: bool = True,
-                 file_format: str = None,
-                 **redshift_kwargs):
+                 file_format: str = None):
         """
         :param file_dest_name: indicating which file to load, e.g. WDI or eea
         :param bucket: destination bucket as string
@@ -37,9 +36,7 @@ class web_loader():
         :param file_download: Does the wb request lead to a direct file downloa?
         :param tempfolder: local storage destiantion
         :param zip_file: Will the download be a zip file?
-        :param log_to_terminal: keep logging in termainl?
         :param file_format: CSV or JSON to further process?
-        :param redshift_kwargs: Redshift load args - see func below for details
         """
 
         if tempfolder:
@@ -59,19 +56,8 @@ class web_loader():
         self.zip_file = zip_file
         self.file_format = file_format
         self.file_download = file_download
-        self.redshift_kwargs = redshift_kwargs
         self.s3_client = boto3.client("s3")
         self.date_folder = date.today().strftime("%Y%m%d") + "/"
-
-        if log_to_terminal:
-            logging.basicConfig(
-                level=logging.INFO,
-                format="%(asctime)s [%(levelname)s] %(message)s",
-                handlers=[
-                    logging.FileHandler("debug.log"),
-                    logging.StreamHandler()
-                ]
-            )
 
         logging.info("Tmp dir: %s" % self.tempdir)
 
@@ -252,7 +238,8 @@ class web_loader():
                 secret_name: str,
                 files_from_bucket: bool = False,
                 type:str = "rds",
-                delete_local_files: bool = True):
+                delete_local_files: bool = True,
+                redshift_kwargs: dict = None):
         """
         loads files to database
         :param file_format: cvs or json
@@ -260,6 +247,7 @@ class web_loader():
         :param files_from_bucket: take files from bucket? if False local temp files are taken
         :param type: database type, RDS or Redshift
         :param delete_local_files: delete local files after complete load to DB?
+        :param redshift_kwargs: Redshift load args - see func below for details
         :return: None
         """
 
@@ -286,8 +274,8 @@ class web_loader():
             engine = create_engine(conn)
 
         if type == "redshift":
-            assert self.redshift_kwargs["glue_conn"]
-            glue_conn = self.redshift_kwargs["glue_conn"]
+            assert redshift_kwargs["glue_conn"]
+            glue_conn = redshift_kwargs["glue_conn"]
             logging.info("Connecting to %s via AWS Wrangler and Glue Conn" % glue_conn)
             conn = wr.redshift.connect(glue_conn)
             logging.info("Connection successful")
@@ -324,9 +312,9 @@ class web_loader():
                     df=df,
                     con=conn,
                     table=table_name,
-                    schema=self.redshift_kwargs["schema"],
-                    chunksize=self.redshift_kwargs["chunksize"],
-                    mode=self.redshift_kwargs["mode"]
+                    schema=redshift_kwargs["schema"],
+                    chunksize=redshift_kwargs["chunksize"],
+                    mode=redshift_kwargs["mode"]
                 )
 
             logging.info("Created table %d of %d" % (i, len(load_list)))
@@ -336,10 +324,37 @@ class web_loader():
             self.delete_local_temp_files()
 
 def main():
-    with open("eea_redshift.yml", "r") as yf:
+
+    log_to_terminal = sys.argv[1]
+
+    if log_to_terminal == "log_to_terminal":
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[
+                logging.FileHandler("debug.log"),
+                logging.StreamHandler()
+            ]
+        )
+        logging.basicConfig(
+            level=logging.ERROR,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[
+                logging.FileHandler("debug.log"),
+                logging.StreamHandler()
+            ]
+        )
+    logging.info("Starting...")
+    config_file = sys.argv[2]
+    logging.info("%s as config file indicated!" % config_file)
+    with open(config_file, "r") as yf:
         config = yaml.safe_load(yf)
-    wl = web_loader(**config["class"])
+    logging.info("Loaded configs from %s" % config_file)
+
+    wl = WebLoader(**config["class"])
+    logging.info("Class created with %s" % config["class"])
     wl.create_raw_files(**config["create_file"])
+    logging.info("Files created with %s" % config["create_file"])
     wl.move_raw_files_s3()
     wl.load_db(**config["load_db"])
 
