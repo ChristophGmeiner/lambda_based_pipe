@@ -323,6 +323,7 @@ class WebLoader():
             i += 1
 
         if delete_local_files:
+            logging.info("Deleting local files...")
             self.delete_local_temp_files()
 
 def main():
