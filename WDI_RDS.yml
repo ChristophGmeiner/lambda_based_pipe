@@ -1,4 +1,15 @@
-file_dest_name: "WDI"
-bucket: "christophprivat-general-data-bucket"
-bucket_dest_folder: "WDI"
-file_download: True
+class:
+  file_dest_name: "WDI"
+  bucket: "christophprivat-general-data-bucket"
+  bucket_dest_folder: "WDI"
+  file_download: True
+
+create_file:
+  store_files: True
+  file_data_url: "https://databank.worldbank.org/data/download/WDI_csv.zip"
+
+load_db:
+  file_format: "csv"
+  secret_name: "test-rds-cluster-01"
+  files_from_bucket: True
+  type: "rds"

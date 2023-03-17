@@ -336,8 +336,14 @@ class web_loader():
             self.delete_local_temp_files()
 
 def main():
-    with open("WDI_RDS.yml", "r") as yf:
+    with open("eea_redshift.yml", "r") as yf:
         config = yaml.safe_load(yf)
-    wl = web_loader(**config)
+    wl = web_loader(**config["class"])
+    wl.create_raw_files(**config["create_file"])
+    wl.move_raw_files_s3()
+    wl.load_db(**config["load_db"])
+
+if __name__ == "__main__":
+    main()
 
 
