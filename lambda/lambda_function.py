@@ -13,7 +13,6 @@ import ast
 import json
 import awswrangler as wr
 import yaml
-import sys
 
 
 class WebLoader():
@@ -326,29 +325,27 @@ class WebLoader():
             logging.info("Deleting local files...")
             self.delete_local_temp_files()
 
-def main():
+def lambda_handler(event, context):
 
-    log_to_terminal = sys.argv[1]
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler("../debug.log"),
+            logging.StreamHandler()
+        ]
+    )
+    logging.basicConfig(
+        level=logging.ERROR,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler("../debug.log"),
+            logging.StreamHandler()
+        ]
+    )
 
-    if log_to_terminal == "log_to_terminal":
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=[
-                logging.FileHandler("../debug.log"),
-                logging.StreamHandler()
-            ]
-        )
-        logging.basicConfig(
-            level=logging.ERROR,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=[
-                logging.FileHandler("../debug.log"),
-                logging.StreamHandler()
-            ]
-        )
     logging.info("Starting...")
-    config_file = sys.argv[2]
+    config_file = event
     logging.info("%s as config file indicated!" % config_file)
     with open(config_file, "r") as yf:
         config = yaml.safe_load(yf)
@@ -360,8 +357,5 @@ def main():
     logging.info("Files created with %s" % config["create_file"])
     wl.move_raw_files_s3()
     wl.load_db(**config["load_db"])
-
-if __name__ == "__main__":
-    main()
 
 
