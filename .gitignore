@@ -5,3 +5,4 @@
 /WDI/
 *.xml
 *.iml
+.DS_Store
