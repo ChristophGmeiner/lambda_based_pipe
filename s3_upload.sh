@@ -16,11 +16,11 @@ if [ $1 = "--install-deps" ]
     echo "Creating packages folder..."
     pip install -q -r requirements.txt --target ./package && echo "pip finished"
     message2="New ZIP file created with package folder!"
-    zip -r $filename package && echo $message2 || exit
+    zip -r -q $filename package && echo $message2 || exit
 fi
 
 message2b="Py script added to ZIP file!"
-zip $filename $pyname
+zip -q $filename $pyname && echo $message2b
 
 message3="ZIP file moved to S3!"
 aws s3 cp $filename $bucketpath && echo $message3 || exit
