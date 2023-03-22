@@ -12,7 +12,6 @@ from sqlalchemy import create_engine
 import ast
 import json
 import awswrangler as wr
-import yaml
 
 #same as root web_s3_db_la,ba.py
 
@@ -346,11 +345,8 @@ def handler(event, context):
     )
 
     logging.info("Starting...")
-    config_file = event
-    logging.info("%s as config file indicated!" % config_file)
-    with open(config_file, "r") as yf:
-        config = yaml.safe_load(yf)
-    logging.info("Loaded configs from %s" % config_file)
+    config = event
+    logging.info("%s as configs " % config)
 
     wl = WebLoader(**config["class"])
     logging.info("Class created with %s" % config["class"])
