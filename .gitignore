@@ -6,3 +6,5 @@
 *.xml
 *.iml
 .DS_Store
+log.txt
+s3_upload.json

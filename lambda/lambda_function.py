@@ -32,8 +32,8 @@ class WebLoader():
         :param file_dest_name: indicating which file to load, e.g. WDI or eea
         :param bucket: destination bucket as string
         :param bucket_dest_folder: foldername for destination in bucket
-        :param file_download: Does the wb request lead to a direct file downloa?
-        :param tempfolder: local storage destiantion
+        :param file_download: Does the wb request lead to a direct file download?
+        :param tempfolder: local storage destination
         :param zip_file: Will the download be a zip file?
         :param file_format: CSV or JSON to further process?
         """
