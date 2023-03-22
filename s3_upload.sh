@@ -1,25 +1,40 @@
 #!/bin/bash
 
-rm lambda01.zip
-rm *.json
-echo "Deleted old file!"
+bucket_name="christophprivat-lambda-functions"
+bucketpath="s3://$bucket_name"
+filebasename="web_s3_db_lambda"
+filename="$filebasename.zip"
+pyname="$filebasename.py"
+
+rm $filename && echo "Old ZIP deleted!"
 
 message1="New JSON file created"
-python3 yaml_to_json.py lambda/eea_redshift.yml lambda/eea_redshift.json && echo $message1 || exit
+python3 yaml_to_json.py eea_redshift.yml eea_redshift.json && echo $message1 || exit
 
-message2="New ZIP file created!"
-zip -r lambda01.zip lambda/*.py && echo $message2 || exit
+if [ $1 = "--install-deps" ]
+  then
+    echo "Creating packages folder..."
+    pip install -q -r requirements.txt --target ./package && echo "pip finished"
+    message2="New ZIP file created with package folder!"
+    zip -r $filename package && echo $message2 || exit
+fi
+
+message2b="Py script added to ZIP file!"
+zip $filename $pyname
 
 message3="ZIP file moved to S3!"
-aws s3 rm s3://christophprivat-general-data-bucket/lambda01/ --recursive
-aws s3 cp lambda01.zip s3://christophprivat-general-data-bucket/lambda01/ && echo $message3 || exit
+aws s3 cp $filename $bucketpath && echo $message3 || exit
 
 
-aws s3 ls s3://christophprivat-general-data-bucket/lambda01/
+aws s3 ls $bucketpath
 
-message4="Lambda Code updated!"
-aws lambda update-function-code \
-  --function-name web-s3-db-lambda \
-  --s3-bucket christophprivat-general-data-bucket \
-  --s3-key lambda01/lambda01.zip > s3_upload.json
-echo $message4
+if [ $2 = "--lambda-function-update" ]
+  then
+    message4="Lambda Code updated!"
+    aws lambda update-function-code \
+      --function-name web-s3-db-lambda \
+      --s3-bucket $bucket_name \
+      --s3-key $filename > s3_upload.json
+    echo $message4
+fi
+
