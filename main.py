@@ -103,7 +103,8 @@ class WebLoader():
         else:
             r = requests.get(file_data_url)
             bucket = self.s3_resource(self.bucket)
-            bucket.upload(r.json(), self.bucket_dest_folder + self.file_dest_name + "." + self.file_format)
+            bucket_dest_folder = self.bucket_dest_folder + self.date_folder
+            bucket.upload(r.json(), bucket_dest_folder + self.file_dest_name + "." + self.file_format)
 
     def list_bucket_files(self,
                           store_to_local_temp: bool = False):

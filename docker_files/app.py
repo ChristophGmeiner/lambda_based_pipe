@@ -101,9 +101,10 @@ class WebLoader():
         else:
             r = requests.get(file_data_url, stream=True)
             data = json.dumps(r.json(), indent=2, default=str)
+            bucket_dest_folder = self.bucket_dest_folder + self.date_folder
             self.s3_client.put_object(
                 Bucket=self.bucket,
-                Key=self.bucket_dest_folder + self.file_dest_name + "." + self.file_format,
+                Key=bucket_dest_folder + self.file_dest_name + "." + self.file_format,
                 Body=data
             )
 
