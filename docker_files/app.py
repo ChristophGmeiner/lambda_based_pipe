@@ -6,7 +6,6 @@ import shutil
 import os
 import logging
 from datetime import date
-from pathlib import Path
 import pandas as pd
 from sqlalchemy import create_engine
 import ast
@@ -26,14 +25,14 @@ class WebLoader():
                  bucket_dest_folder: str,
                  file_download: bool,
                  file_format: str,
-                 tempfolder: str = "/tempload/",
+                 tempfolder: str = None,
                  zip_file: bool = False):
         """
         :param file_dest_name: indicating which file to load, e.g. WDI or eea
         :param bucket: destination bucket as string
         :param bucket_dest_folder: foldername for destination in bucket
-        :param file_download: Does the wb request lead to a direct file download?
-        :param tempfolder: local storage destination
+        :param file_download: Does the wb request lead to a direct file downloa?
+        :param tempfolder: local storage destiantion
         :param zip_file: Will the download be a zip file?
         :param file_format: CSV or JSON to further process?
         """
@@ -43,10 +42,10 @@ class WebLoader():
                 tempfolder = "/" + tempfolder
             if tempfolder[-1] != "/":
                 tempfolder += "/"
-            tempfolder = str(Path.home()) + tempfolder
+            tempfolder = os.getcwd() + tempfolder
             self.tempdir = tempfolder
         else:
-            self.tempdir = os.curdir + "/"
+            self.tempdir = os.getcwd() + "/"
         self.file_dest_name = file_dest_name
         self.bucket = bucket
         self.bucket_dest_folder = bucket_dest_folder
@@ -61,44 +60,52 @@ class WebLoader():
         logging.info("Tmp dir: %s" % self.tempdir)
 
     def create_raw_files(self,
-                         store_files: bool,
-                         file_data_url: str = None):
+                         store_files: bool = None,
+                         file_data_url: str = None,
+                         direct_to_bucket: bool = False):
         """
         Create raw files from web request and store those locally in tempfolder from class
         :param file_data_url: URL for file download or creation
         :param store_files: Also store files locally and in S3
+        :param direct_to_bucket: skip local filesystem
         :return: string indicating local destination, only in case store_files of class is set to False
         """
+        if not direct_to_bucket:
+            dest = self.tempdir
 
-        dest = self.tempdir + self.file_dest_name
+            if not store_files:
+                logging.info("%s provided for further process" % dest)
+                return dest
 
-        if not store_files:
-            logging.info("%s provided for further process" % dest)
-            return dest
+            if store_files and not file_data_url:
+                logging.error("Storing files only possible, if URL is provided")
 
-        if not os.path.isdir(dest) and store_files:
-            os.mkdir(dest)
+            if self.file_download:
+                if self.zip_file:
+                    if store_files:
+                        r = request.urlretrieve(file_data_url, dest + self.file_dest_name + ".zip")
+                        shutil.unpack_archive(dest + self.file_dest_name + ".zip", dest)
+                        logging.info("%s unpacked to %s" % (self.file_dest_name, dest))
+                        logging.info(os.listdir(dest))
 
-        if store_files and not file_data_url:
-            logging.error("Storing files only possible, if URL is provided")
-
-        if self.file_download:
-            if self.zip_file:
+            else:
+                dest_file = dest + "/" + self.file_dest_name + "." + self.file_format
                 if store_files:
-                    r = request.urlretrieve(file_data_url, dest + ".zip")
-                    shutil.unpack_archive(dest + ".zip", dest)
-                    logging.info("%s unpacked to %s" % (self.file_dest_name, dest))
+                    r = requests.get(file_data_url)
+                    data = r.json()
+                    with open(dest_file, "w") as f:
+                        json.dump(data, f)
+                    logging.info("Following files stored: ")
                     logging.info(os.listdir(dest))
 
         else:
-            dest_file = dest + "/" + self.file_dest_name + "." + self.file_format
-            if store_files:
-                r = requests.get(file_data_url)
-                data = r.json()
-                with open(dest_file, "w") as f:
-                    json.dump(data, f)
-                logging.info("Following files stored: ")
-                logging.info(os.listdir(dest))
+            r = requests.get(file_data_url, stream=True)
+            data = json.dumps(r.json(), indent=2, default=str)
+            self.s3_client.put_object(
+                Bucket=self.bucket,
+                Key=self.bucket_dest_folder + self.file_dest_name + "." + self.file_format,
+                Body=data
+            )
 
     def list_bucket_files(self,
                           store_to_local_temp: bool = False):
@@ -289,8 +296,15 @@ class WebLoader():
 
             if self.file_format == "json":
                 logging.info("Reading %s" % f)
-                with open(f, "r") as fj:
-                    df_base = json.load(fj)
+                if not files_from_bucket:
+                    with open(f, "r") as fj:
+                        df_base = json.load(fj)
+                else:
+                    r = self.s3_client.get_object(
+                        Bucket=self.bucket,
+                        Key=self.bucket_dest_folder + self.file_dest_name + "." + self.file_format
+                    )
+                    df_base = json.loads(r.get("Body").read())
                 df_base = df_base["results"]
                 df = pd.DataFrame(df_base)
                 logging.info(df.head())
@@ -327,22 +341,26 @@ class WebLoader():
 
 def handler(event, context):
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler("../debug.log"),
-            logging.StreamHandler()
-        ]
-    )
-    logging.basicConfig(
-        level=logging.ERROR,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler("../debug.log"),
-            logging.StreamHandler()
-        ]
-    )
+    if event["log_terminal"]:
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[
+               # logging.FileHandler("../debug.log"),
+                logging.StreamHandler()
+            ]
+        )
+        logging.basicConfig(
+            level=logging.ERROR,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[
+               # logging.FileHandler("../debug.log"),
+                logging.StreamHandler()
+            ]
+        )
+    else:
+        logging.getLogger().setLevel(logging.INFO)
 
     logging.info("Starting...")
     config = event
@@ -352,7 +370,6 @@ def handler(event, context):
     logging.info("Class created with %s" % config["class"])
     wl.create_raw_files(**config["create_file"])
     logging.info("Files created with %s" % config["create_file"])
-    wl.move_raw_files_s3()
     wl.load_db(**config["load_db"])
 
 

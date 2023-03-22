@@ -6,7 +6,6 @@ import shutil
 import os
 import logging
 from datetime import date
-from pathlib import Path
 import pandas as pd
 from sqlalchemy import create_engine
 import ast
@@ -27,7 +26,7 @@ class WebLoader():
                  bucket_dest_folder: str,
                  file_download: bool,
                  file_format: str,
-                 tempfolder: str = "/tempload/",
+                 tempfolder: str = None,
                  zip_file: bool = False):
         """
         :param file_dest_name: indicating which file to load, e.g. WDI or eea
@@ -44,10 +43,10 @@ class WebLoader():
                 tempfolder = "/" + tempfolder
             if tempfolder[-1] != "/":
                 tempfolder += "/"
-            tempfolder = str(Path.home()) + tempfolder
+            tempfolder = os.getcwd() + tempfolder
             self.tempdir = tempfolder
         else:
-            self.tempdir = os.curdir + "/"
+            self.tempdir = os.getcwd() + "/"
         self.file_dest_name = file_dest_name
         self.bucket = bucket
         self.bucket_dest_folder = bucket_dest_folder
@@ -57,49 +56,54 @@ class WebLoader():
         self.file_format = file_format
         self.file_download = file_download
         self.s3_client = boto3.client("s3")
+        self.s3_resource = boto3.resource("s3")
         self.date_folder = date.today().strftime("%Y%m%d") + "/"
 
         logging.info("Tmp dir: %s" % self.tempdir)
 
     def create_raw_files(self,
-                         store_files: bool,
-                         file_data_url: str = None):
+                         store_files: bool = None,
+                         file_data_url: str = None,
+                         direct_to_bucket: bool = False):
         """
         Create raw files from web request and store those locally in tempfolder from class
         :param file_data_url: URL for file download or creation
         :param store_files: Also store files locally and in S3
+        :param direct_to_bucket: skip local filesystem
         :return: string indicating local destination, only in case store_files of class is set to False
         """
+        if not direct_to_bucket:
+            dest = self.tempdir
 
-        dest = self.tempdir + self.file_dest_name
+            if not store_files:
+                logging.info("%s provided for further process" % dest)
+                return dest
 
-        if not store_files:
-            logging.info("%s provided for further process" % dest)
-            return dest
+            if store_files and not file_data_url:
+                logging.error("Storing files only possible, if URL is provided")
 
-        if not os.path.isdir(dest) and store_files:
-            os.mkdir(dest)
+            if self.file_download:
+                if self.zip_file:
+                    if store_files:
+                        r = request.urlretrieve(file_data_url, dest + self.file_dest_name + ".zip")
+                        shutil.unpack_archive(dest + self.file_dest_name + ".zip", dest)
+                        logging.info("%s unpacked to %s" % (self.file_dest_name, dest))
+                        logging.info(os.listdir(dest))
 
-        if store_files and not file_data_url:
-            logging.error("Storing files only possible, if URL is provided")
-
-        if self.file_download:
-            if self.zip_file:
+            else:
+                dest_file = dest + "/" + self.file_dest_name + "." + self.file_format
                 if store_files:
-                    r = request.urlretrieve(file_data_url, dest + ".zip")
-                    shutil.unpack_archive(dest + ".zip", dest)
-                    logging.info("%s unpacked to %s" % (self.file_dest_name, dest))
+                    r = requests.get(file_data_url)
+                    data = r.json()
+                    with open(dest_file, "w") as f:
+                        json.dump(data, f)
+                    logging.info("Following files stored: ")
                     logging.info(os.listdir(dest))
 
         else:
-            dest_file = dest + "/" + self.file_dest_name + "." + self.file_format
-            if store_files:
-                r = requests.get(file_data_url)
-                data = r.json()
-                with open(dest_file, "w") as f:
-                    json.dump(data, f)
-                logging.info("Following files stored: ")
-                logging.info(os.listdir(dest))
+            r = requests.get(file_data_url)
+            bucket = self.s3_resource(self.bucket)
+            bucket.upload(r.json(), self.bucket_dest_folder + self.file_dest_name + "." + self.file_format)
 
     def list_bucket_files(self,
                           store_to_local_temp: bool = False):
