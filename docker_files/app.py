@@ -326,7 +326,7 @@ class WebLoader():
             logging.info("Deleting local files...")
             self.delete_local_temp_files()
 
-def lambda_handler(event, context):
+def handler(event, context):
 
     logging.basicConfig(
         level=logging.INFO,
