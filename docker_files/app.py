@@ -284,12 +284,14 @@ class WebLoader():
 
         if type == "redshift":
             assert redshift_kwargs["glue_conn"]
+            logging.info("Attempting the connection to Redshift serverless via Glue connection...")
             glue_conn = redshift_kwargs["glue_conn"]
             logging.info("Connecting to %s via AWS Wrangler and Glue Conn" % glue_conn)
             conn = wr.redshift.connect(glue_conn)
             logging.info("Connection successful")
 
         i = 1
+        logging.info("Start extract and load to %s with %s." % (type, load_list))
         for f in load_list:
 
             if f[f.find(".") + 1:] != self.file_format:
@@ -298,12 +300,14 @@ class WebLoader():
             if self.file_format == "json":
                 logging.info("Reading %s" % f)
                 if not files_from_bucket:
+                    logging.info("Getting files from local drive...")
                     with open(f, "r") as fj:
                         df_base = json.load(fj)
                 else:
+                    logging.info("Getting files from %s..." % self.bucket)
                     r = self.s3_client.get_object(
                         Bucket=self.bucket,
-                        Key=self.bucket_dest_folder + self.file_dest_name + "." + self.file_format
+                        Key=f
                     )
                     df_base = json.loads(r.get("Body").read())
                 df_base = df_base["results"]
