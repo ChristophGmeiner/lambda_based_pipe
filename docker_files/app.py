@@ -247,7 +247,7 @@ class WebLoader():
     def load_db(self,
                 secret_name: str,
                 files_from_bucket: bool = False,
-                type:str = "rds",
+                type: str = "rds",
                 delete_local_files: bool = True,
                 redshift_kwargs: dict = None):
         """
@@ -270,10 +270,10 @@ class WebLoader():
 
         #on non local env can be used with wr and Glue RDS conn
         if type == "rds":
-            host = "localhost" #secrets["host"]
-            port = "5555" #secrets["port"]
+            host = secrets["host"]
+            port = secrets["port"]
             logging.info("Connecting to %s:%s" % (host, port))
-            conn =  "postgresql+psycopg2://%s:%s@%s:%s/%s" % (
+            conn = "postgresql+psycopg2://%s:%s@%s:%s/%s" % (
                 secrets["username"],
                 secrets["password"],
                 host,
@@ -369,8 +369,11 @@ def handler(event, context):
 
     wl = WebLoader(**config["class"])
     logging.info("Class created with %s" % config["class"])
-    wl.create_raw_files(**config["create_file"])
-    logging.info("Files created with %s" % config["create_file"])
+    if not config["skip_file_creation"]:
+        wl.create_raw_files(**config["create_file"])
+        logging.info("Files created with %s" % config["create_file"])
+    else:
+        logging.info("File creation skipped!")
     wl.load_db(**config["load_db"])
 
 
