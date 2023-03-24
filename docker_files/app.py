@@ -316,6 +316,7 @@ class WebLoader():
                     df_base = json.loads(r.get("Body").read())
                 df_base = df_base["results"]
                 df = pd.DataFrame(df_base)
+                df["loadday"] = self.date_folder[:-1]
                 logging.info(df.head())
 
             elif self.file_format == "csv":
@@ -329,7 +330,7 @@ class WebLoader():
             df.to_sql(table_name,
                       engine,
                       index=False,
-                      if_exists="replace",
+                      if_exists="append",
                       chunksize=chunksize)
 
             logging.info("Created table %d of %d" % (i, len(load_list)))
