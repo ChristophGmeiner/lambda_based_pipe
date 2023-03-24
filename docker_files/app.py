@@ -247,7 +247,8 @@ class WebLoader():
                 secret_name: str,
                 files_from_bucket: bool = False,
                 type: str = "rds",
-                delete_local_files: bool = True):
+                delete_local_files: bool = True,
+                chunksize: int = None):
         """
         loads files to database
         :param secret_name: name of AWS secret for db creds
@@ -255,6 +256,7 @@ class WebLoader():
         :param type: database type, RDS or Redshift
         :param delete_local_files: delete local files after complete load to DB?
         :param redshift_kwargs: Redshift load args - see func below for details
+        :param chunksize: pandas to sql chunksize
         :return: None
         """
 
@@ -327,7 +329,8 @@ class WebLoader():
             df.to_sql(table_name,
                       engine,
                       index=False,
-                      if_exists="replace")
+                      if_exists="replace",
+                      chunksize=chunksize)
 
             logging.info("Created table %d of %d" % (i, len(load_list)))
             i += 1

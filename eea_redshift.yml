@@ -19,4 +19,5 @@ load_db:
   files_from_bucket: True
   type: "redshift"
   delete_local_files: False
+  chunksize: 1000
 
