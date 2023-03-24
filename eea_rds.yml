@@ -1,4 +1,4 @@
-skip_file_creation: True
+skip_file_creation: False
 
 log_terminal: False
 
