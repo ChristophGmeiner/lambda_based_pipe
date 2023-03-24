@@ -9,3 +9,4 @@
 log.txt
 s3_upload.json
 /package/
+docker_lambda_update.json
