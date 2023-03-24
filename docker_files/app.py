@@ -10,7 +10,6 @@ import pandas as pd
 from sqlalchemy import create_engine
 import ast
 import json
-import awswrangler as wr
 
 #same as root web_s3_db_la,ba.py
 
@@ -248,8 +247,7 @@ class WebLoader():
                 secret_name: str,
                 files_from_bucket: bool = False,
                 type: str = "rds",
-                delete_local_files: bool = True,
-                redshift_kwargs: dict = None):
+                delete_local_files: bool = True):
         """
         loads files to database
         :param secret_name: name of AWS secret for db creds
@@ -269,6 +267,17 @@ class WebLoader():
             secrets = ast.literal_eval(secrets)
 
         #on non local env can be used with wr and Glue RDS conn
+        if type == "redshift":
+            host = secrets["host"]
+            port = secrets["port"]
+            logging.info("Connecting to %s:%s" % (host, port))
+            conn = "redshift+redshift_connector://%s:%s@%s:%s/%s" % (
+                secrets["username"],
+                secrets["password"],
+                host,
+                port,
+                secrets["dbname"]
+            )
         if type == "rds":
             host = secrets["host"]
             port = secrets["port"]
@@ -278,17 +287,10 @@ class WebLoader():
                 secrets["password"],
                 host,
                 port,
-                "postgres"
+                secrets["engine"]
             )
-            engine = create_engine(conn)
 
-        if type == "redshift":
-            assert redshift_kwargs["glue_conn"]
-            logging.info("Attempting the connection to Redshift serverless via Glue connection...")
-            glue_conn = redshift_kwargs["glue_conn"]
-            logging.info("Connecting to %s via AWS Wrangler and Glue Conn" % glue_conn)
-            conn = wr.redshift.connect(glue_conn)
-            logging.info("Connection successful")
+        engine = create_engine(conn)
 
         i = 1
         logging.info("Start extract and load to %s with %s." % (type, load_list))
@@ -322,20 +324,10 @@ class WebLoader():
             df = df.dropna(axis=1, how="all")
             table_name = self.file_dest_name + str(i)
             table_name = table_name.lower()
-            if type == "rds":
-                df.to_sql(table_name,
-                          engine,
-                          index=False,
-                          if_exists="replace")
-            if type == "redshift":
-                wr.redshift.to_sql(
-                    df=df,
-                    con=conn,
-                    table=table_name,
-                    schema=redshift_kwargs["schema"],
-                    chunksize=redshift_kwargs["chunksize"],
-                    mode=redshift_kwargs["mode"]
-                )
+            df.to_sql(table_name,
+                      engine,
+                      index=False,
+                      if_exists="replace")
 
             logging.info("Created table %d of %d" % (i, len(load_list)))
             i += 1

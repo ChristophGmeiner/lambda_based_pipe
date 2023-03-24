@@ -1,3 +1,5 @@
+skip_file_creation: True
+
 log_terminal: False
 
 class:
@@ -13,12 +15,8 @@ create_file:
   file_data_url: "https://discodata.eea.europa.eu/sql?query=SELECT%20*%20FROM%20CO2Emission.latest.co2cars%20WHERE%20year%20%3D%202017&p=1&nrOfHits=20000&mail=null&schema=null"
 
 load_db:
-  secret_name: "test-rs-serverless"
+  secret_name: "redshift-01"
   files_from_bucket: True
   type: "redshift"
   delete_local_files: False
-  redshift_kwargs:
-    glue_conn: "glue-connection-test-rs-serverless"
-    schema: "test"
-    chunksize: 1000
-    mode: "overwrite"
+
